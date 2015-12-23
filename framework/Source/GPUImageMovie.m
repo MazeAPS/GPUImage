@@ -134,6 +134,9 @@
 
 - (void)dealloc
 {
+    
+    [playerItemOutput setDelegate:nil queue:nil];
+    
     // Moved into endProcessing
     //if (self.playerItem && (displayLink != nil))
     //{

@@ -139,8 +139,10 @@
         runSynchronouslyOnVideoProcessingQueue(^{
             [self destroyDisplayFramebuffer];
             [self createDisplayFramebuffer];
-            [self recalculateViewGeometry];
+            //[self recalculateViewGeometry];
         });
+    } else if (!CGSizeEqualToSize(self.bounds.size, CGSizeZero)) {
+        [self recalculateViewGeometry];
     }
 }
 
@@ -187,6 +189,8 @@
     GLuint framebufferCreationStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     NSAssert(framebufferCreationStatus == GL_FRAMEBUFFER_COMPLETE, @"Failure with display framebuffer generation for display of size: %f, %f", self.bounds.size.width, self.bounds.size.height);
     boundsSizeAtFrameBufferEpoch = self.bounds.size;
+    
+    [self recalculateViewGeometry];
 }
 
 - (void)destroyDisplayFramebuffer;

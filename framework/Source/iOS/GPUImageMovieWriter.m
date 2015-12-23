@@ -27,7 +27,9 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
 
     GPUImageFramebuffer *firstInputFramebuffer;
     
+    BOOL discont;
     CMTime startTime, previousFrameTime, previousAudioTime;
+    CMTime offsetTime;
 
     dispatch_queue_t audioQueue, videoQueue;
     BOOL audioEncodingIsFinished, videoEncodingIsFinished;
@@ -85,6 +87,7 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
     videoEncodingIsFinished = NO;
     audioEncodingIsFinished = NO;
 
+    discont = NO;
     videoSize = newSize;
     movieURL = newMovieURL;
     fileType = newFileType;
@@ -362,7 +365,7 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
 
 - (void)processAudioBuffer:(CMSampleBufferRef)audioBuffer;
 {
-    if (!isRecording)
+    if (!isRecording || _paused)
     {
         return;
     }
@@ -397,6 +400,34 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
             return;
         }
 
+        if (discont) {
+            discont = NO;
+
+            CMTime current;
+            if (offsetTime.value > 0) {
+                current = CMTimeSubtract(currentSampleTime, offsetTime);
+            } else {
+                current = currentSampleTime;
+            }
+
+            CMTime offset = CMTimeSubtract(current, previousAudioTime);
+
+            if (offsetTime.value == 0) {
+                offsetTime = offset;
+            } else {
+                offsetTime = CMTimeAdd(offsetTime, offset);
+            }
+        }
+
+        if (offsetTime.value > 0) {
+            CFRelease(audioBuffer);
+            audioBuffer = [self adjustTime:audioBuffer by:offsetTime];
+            CFRetain(audioBuffer);
+        }
+
+        // record most recent time so we know the length of the pause
+        currentSampleTime = CMSampleBufferGetPresentationTimeStamp(audioBuffer);
+        
         previousAudioTime = currentSampleTime;
         
         //if the consumer wants to do something with the audio samples before writing, let him.
@@ -666,10 +697,33 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
 
 - (void)newFrameReadyAtTime:(CMTime)frameTime atIndex:(NSInteger)textureIndex;
 {
-    if (!isRecording)
+    if (!isRecording || _paused)
     {
         [firstInputFramebuffer unlock];
         return;
+    }
+    
+    if (discont) {
+        discont = NO;
+        CMTime current;
+
+        if (offsetTime.value > 0) {
+            current = CMTimeSubtract(frameTime, offsetTime);
+        } else {
+            current = frameTime;
+        }
+
+        CMTime offset  = CMTimeSubtract(current, previousFrameTime);
+
+        if (offsetTime.value == 0) {
+            offsetTime = offset;
+        } else {
+            offsetTime = CMTimeAdd(offsetTime, offset);
+        }
+    }
+
+    if (offsetTime.value > 0) {
+        frameTime = CMTimeSubtract(frameTime, offsetTime);
     }
 
     // Drop frames forced by images and other things with no time constants
@@ -929,6 +983,34 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
 
 - (AVAssetWriter*)assetWriter {
     return assetWriter;
+}
+
+- (void)setPaused:(BOOL)newValue {
+    if (_paused != newValue) {
+        _paused = newValue;
+
+        if (_paused) {
+            discont = YES;
+        }
+    }
+}
+
+- (CMSampleBufferRef)adjustTime:(CMSampleBufferRef) sample by:(CMTime) offset {
+    CMItemCount count;
+    CMSampleBufferGetSampleTimingInfoArray(sample, 0, nil, &count);
+    CMSampleTimingInfo* pInfo = malloc(sizeof(CMSampleTimingInfo) * count);
+    CMSampleBufferGetSampleTimingInfoArray(sample, count, pInfo, &count);
+    
+    for (CMItemCount i = 0; i < count; i++) {
+        pInfo[i].decodeTimeStamp = CMTimeSubtract(pInfo[i].decodeTimeStamp, offset);
+        pInfo[i].presentationTimeStamp = CMTimeSubtract(pInfo[i].presentationTimeStamp, offset);
+    }
+
+    CMSampleBufferRef sout;
+    CMSampleBufferCreateCopyWithNewTiming(nil, sample, count, pInfo, &sout);
+    free(pInfo);
+
+    return sout;
 }
 
 @end
