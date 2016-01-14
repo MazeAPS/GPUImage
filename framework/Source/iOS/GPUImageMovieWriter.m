@@ -420,9 +420,9 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
         }
 
         if (offsetTime.value > 0) {
-            CFRelease(audioBuffer);
-            audioBuffer = [self adjustTime:audioBuffer by:offsetTime];
-            CFRetain(audioBuffer);
+            
+            [self adjustTime:audioBuffer by:offsetTime];
+            
         }
 
         // record most recent time so we know the length of the pause
@@ -995,22 +995,10 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
     }
 }
 
-- (CMSampleBufferRef)adjustTime:(CMSampleBufferRef) sample by:(CMTime) offset {
-    CMItemCount count;
-    CMSampleBufferGetSampleTimingInfoArray(sample, 0, nil, &count);
-    CMSampleTimingInfo* pInfo = malloc(sizeof(CMSampleTimingInfo) * count);
-    CMSampleBufferGetSampleTimingInfoArray(sample, count, pInfo, &count);
-    
-    for (CMItemCount i = 0; i < count; i++) {
-        pInfo[i].decodeTimeStamp = CMTimeSubtract(pInfo[i].decodeTimeStamp, offset);
-        pInfo[i].presentationTimeStamp = CMTimeSubtract(pInfo[i].presentationTimeStamp, offset);
-    }
-
-    CMSampleBufferRef sout;
-    CMSampleBufferCreateCopyWithNewTiming(nil, sample, count, pInfo, &sout);
-    free(pInfo);
-
-    return sout;
+- (void)adjustTime:(CMSampleBufferRef) sample by:(CMTime) offset {
+    CMTime timeStamp = CMSampleBufferGetOutputPresentationTimeStamp(sample);
+    timeStamp = CMTimeSubtract(timeStamp, offset);
+    CMSampleBufferSetOutputPresentationTimeStamp(sample, timeStamp);
 }
 
 @end
